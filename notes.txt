@@ -1,0 +1,208 @@
+function Scope(){
+    this.$$watchers = [];
+}
+
+Scope.prototype.$watch = function(watchFn, listenerFn) {
+    var watcher = {
+        watchFn: watchFn,
+        listenerFn: listenerFn
+    };
+    this.$$watchers.push(watcher);
+};
+
+Scope.prototype.$digest = function() {
+    var self = this;
+    var newValue, oldValue;
+    this.$$watchers.forEach(function(watcher) {
+        newValue = watcher.watchFn(self);
+        oldValue = watcher.last;
+        if (newValue !== oldValue) {
+            watcher.last = newValue;
+            watcher.listenerFn(newValue, oldValue, self);
+        }
+    });
+};
+
+Keep Digesting While Dirty
+
+//Refactoring
+
+
+Scope.prototype.$$digestOnce = function() {
+    var self = this;
+    var newValue, oldValue, dirty;
+    _.forEach(this.$$watchers, function(watcher) {
+        newValue = watcher.watchFn(self);
+        oldValue = watcher.last;
+        if (newValue !== oldValue) {
+            watcher.last = newValue;
+            watcher.listenerFn(newValue,oldValue, self);
+        dirty = true;
+        }
+    });
+    return dirty;
+};
+
+
+Scope.prototype.$digest = function() {
+    var dirty;
+    do {
+        dirty = this.$$digestOnce();
+    } while (dirty);
+};
+
+
+//$eval
+Scope.prototype.$eval = function(expr, locals) {
+    return expr(this, locals);
+};
+
+Scope.prototype.$apply = function(expr) {
+    try {
+        return this.$eval(expr);
+    } finally {
+        this.$digest();
+    }
+};
+
+//Inheritence
+Scope.prototype.$new = function() {
+    var ChildScope = function() { };
+    ChildScope.prototype = this;
+    var child = new ChildScope();
+    child.$$watchers = [];
+    return child;
+};
+
+//Recursive Digestion
+function Scope() {
+    this.$$watchers = [];
+    this.$$children = [];
+}
+
+Scope.prototype.$new = function() {
+    var ChildScope = function() { };
+    ChildScope.prototype = this;
+    var child = new ChildScope();
+    this.$$children.push(child);
+    child.$$watchers = [];
+    child.$$children = [];
+    return child;
+}
+
+//Expressions
+
+//Modules
+function setupModuleLoader(window) {
+    var ensure = function(obj, name, factory) {
+        return obj[name] || (obj[name] = factory());
+    };
+    var angular = ensure(window, 'angular', Object);
+    var createModule = function(name, requires) {
+        var moduleInstance = {
+            name: name,
+            requires : requires
+        };
+        return moduleInstance;
+    };
+    ensure(angular, 'module', function() {
+        return function(name, requires) {
+            return createModule(name, requires);
+        };
+    });
+}
+
+//Injector
+function createInjector(modulesToLoad) {
+    return {};
+}
+
+//Registering a constant
+module.constant('aConstant', 42);
+function setupModuleLoader(window) {
+    var ensure = function(obj, name, factory) {
+        return obj[name] || (obj[name] = factory());
+    };
+    var angular = ensure(window, 'angular', Object);
+    var createModule = function(name, requires) {
+        var moduleInstance = {
+            name: name,
+            requires : requires,
+            constant: function(key, value) {
+            }
+        };
+        return moduleInstance;
+    };
+    ensure(angular, 'module', function() {
+        return function(name, requires) {
+            return createModule(name, requires);
+        };
+    });
+}
+
+var createModule = function(name, requires, modules) {
+    if (name === 'hasOwnProperty') {
+        throw 'hasOwnProperty is not a valid module name';
+    }
+    var invokeQueue = [];
+    var moduleInstance = {
+        name: name,
+        requires: requires,
+        constant: function(key, value) {
+            invokeQueue.push(['constant', [key, value]]);
+        },
+        _invokeQueue: invokeQueue
+    };
+    modules[name] = moduleInstance;
+    return moduleInstance;
+};
+
+function createInjector(modulesToLoad) {
+    var $provide = {
+        constant: function(key, value) {
+        
+        }
+    };
+    _.forEach(modulesToLoad, function(moduleName) {
+        var module = angular.module(moduleName);
+        _.forEach(module._invokeQueue, function(invokeArgs) {
+            var method = invokeArgs[0];
+            var args = invokeArgs[1];
+            $provide[method].apply($provide, args);
+        });
+    });
+    return {};
+}
+
+function createInjector(modulesToLoad) {
+var cache = {};
+var loadedModules = {};
+var $provide = {
+    constant: function(key, value) {
+        if (key === 'hasOwnProperty') {
+            throw 'hasOwnProperty is not a valid constant name!';
+        }
+        cache[key] = value;
+    }
+};
+_.forEach(modulesToLoad, function loadModule(moduleName) {
+if (!loadedModules.hasOwnProperty(moduleName)) {
+loadedModules[moduleName] = true;
+var module = angular.module(moduleName);
+_.forEach(module.requires, loadModule);
+_.forEach(module._invokeQueue, function(invokeArgs) {
+var method = invokeArgs[0];
+var args = invokeArgs[1];
+$provide[method].apply($provide, args);
+});
+}
+});
+return {
+has: function(key) {
+return cache.hasOwnProperty(key);
+},
+get: function(key) {
+return cache[key];
+}
+};
+}
